@@ -79,6 +79,7 @@
           <div style="height:8px"></div>
           <label class="hint">Paste pairs (one per line). Use <span class="mono">tab</span>, <span class="mono">,</span>, <span class="mono">;</span> or <span class="mono">:</span> as separator.</label>
           <textarea id="pairsInput" placeholder="groß; big
+            
 die Stadt, the city
 freundlich : friendly
 ich spiele\tI play"></textarea>
@@ -206,7 +207,9 @@ function parsePairs(text){
   const lines = text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
   const pairs = [];
   for(const line of lines){
-    const m = line.split(/\t|;|:|,/);
+    raw = raw.replace(/\u00A0/g, ' '); // turn non-breaking spaces into normal spaces
+const line = raw.trim();
+const m = line.split(/\t|;|:|,|\/|\s-\s|\s–\s|\s—\s|=|\|/);
     if(m.length >= 2){
       const left = m[0].trim();
       const right = m.slice(1).join(',').trim();
@@ -408,3 +411,4 @@ tabPlay.addEventListener('click', ()=>{
 </script>
 </body>
 </html>
+
