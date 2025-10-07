@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Flashcard Generator (with Login + Google Sheet logging)</title>
+<title>Flashcard Generator (Conti-friendly) — with Login + Google Sheets Logging</title>
 <style>
   :root{
     --bg:#0f172a; --paper:#0b1224; --ink:#ffffff; --accent:#60a5fa; --muted:#9aa6bd; --card:#111827;
@@ -77,12 +77,26 @@
           <label class="hint">Set title</label>
           <input id="setTitle" type="text" placeholder="e.g. Y8 Holidays — Core chunks" />
           <div style="height:8px"></div>
-          <label class="hint">Paste pairs (one per line). Use <span class="mono">tab</span>, <span class="mono">,</span>, <span class="mono">;</span> or <span class="mono">:</span> as separator.</label>
-          <textarea id="pairsInput" placeholder="groß; big
-            
-die Stadt, the city
-freundlich : friendly
-ich spiele\tI play"></textarea>
+          <label class="hint">
+            Paste pairs (one per line). Supported separators:
+            <span class="mono">tab</span>,
+            <span class="mono">;</span>,
+            <span class="mono">:</span>,
+            <span class="mono">,</span>,
+            <span class="mono">/</span>,
+            <span class="mono">|</span>,
+            <span class="mono">=</span>,
+            <span class="mono">" - "</span>,
+            en/em-dash with spaces, or <span class="mono">2+ spaces</span>.
+          </label>
+          <textarea id="pairsInput" placeholder="groß / big
+die Stadt : the city
+freundlich — friendly
+ich spiele  I play
+Katze | cat
+schwarz = black
+Abend - evening
+Blume; flower"></textarea>
 
           <div class="row" style="margin-top:10px">
             <button id="btnMake">Generate shareable link</button>
@@ -99,9 +113,9 @@ ich spiele\tI play"></textarea>
             <button id="btnOpen" class="ghost">Open link</button>
           </div>
           <div class="footer-note">
-            Anyone opening your link will see the flashcards for **this set**.
+            Anyone opening your link will see the flashcards for <b>this set</b>.
             Nothing is stored on a server; the set is encoded in the URL hash.
-            <br>Tip: add a class code in the URL like <span class="mono">?class=Y8A</span> to tag logs.
+            <br>Tip: add a class code in the link like <span class="mono">?class=Y8A</span> to tag logs.
           </div>
         </div>
       </div>
@@ -153,8 +167,9 @@ ich spiele\tI play"></textarea>
   </div>
 
 <script>
+document.addEventListener('DOMContentLoaded', () => {
 /* ====================== CONFIG – PASTE YOUR WEB APP URL HERE ====================== */
-https://script.google.com/macros/s/AKfycbx06vsfbahkiyd_60IaGvHbdXO1bkpHT2lXL7v7rydJbF0I15zsQWk81w0IYt4m_jBJ/exec
+const GAS_URL = 'PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE';  // e.g. 'https://script.google.com/macros/s/AKfycbx.../exec'
 /* ================================================================================== */
 
 /* ---------- Utilities ---------- */
@@ -202,36 +217,61 @@ function activate(tab){
 tabBuild.onclick = ()=>activate('build');
 tabPlay.onclick = ()=>activate('play');
 
-/* ---------- Parsing ---------- */
+/* ---------- Robust parse: split on the FIRST separator only ---------- */
 function parsePairs(text){
-  const lines = text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  const lines = (text||'').split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
   const pairs = [];
-  for(const line of lines){
-    raw = raw.replace(/\u00A0/g, ' '); // turn non-breaking spaces into normal spaces
-const line = raw.trim();
-const m = line.split(/\t|;|:|,|\/|\s-\s|\s–\s|\s—\s|=|\|/);
-    if(m.length >= 2){
-      const left = m[0].trim();
-      const right = m.slice(1).join(',').trim();
-      if(left && right) pairs.push({front:left, back:right});
+
+  // Supported separators (order matters: earlier = higher priority)
+  const SEPARATORS = [
+    /\t/,                 // tab
+    /\s-\s/,              // space-hyphen-space
+    /\s–\s/,              // en dash with spaces
+    /\s—\s/,              // em dash with spaces
+    /;/, /:/, /,/, /\//,  // punctuation
+    /=/, /\|/,            // equals, vertical bar
+    /\s{2,}/              // 2+ spaces
+  ];
+
+  function splitFirst(line){
+    for (const re of SEPARATORS){
+      const m = line.match(re);
+      if (m){
+        const idx = line.indexOf(m[0]);
+        return [ line.slice(0, idx), line.slice(idx + m[0].length) ];
+      }
+    }
+    return null;
+  }
+
+  for (let raw of lines){
+    // normalise non-breaking spaces and collapse duplicate whitespace
+    raw = raw.replace(/\u00A0/g, ' ');
+    const line = raw.trim();
+    const parts = splitFirst(line);
+    if (parts){
+      const left = parts[0].trim();
+      const right = parts[1].trim();
+      if (left && right) pairs.push({ front:left, back:right });
     }
   }
   return pairs;
 }
+
 function updateCount(){
   const pairs = parsePairs(pairsInput.value);
   countBadge.textContent = `${pairs.length} pair${pairs.length===1?'':'s'}`;
 }
-pairsInput.addEventListener('input', updateCount); updateCount();
+pairsInput.addEventListener('input', updateCount);
+updateCount();
 
 /* ---------- Build: create link ---------- */
 $('btnMake').onclick = ()=>{
   const pairs = parsePairs(pairsInput.value);
-  if(pairs.length===0){ alert('Please add at least one pair.'); return; }
+  if(pairs.length===0){ alert('Please add at least one pair (check your separators).'); return; }
   const title = (setTitle.value||'Untitled set').trim();
   const payload = { title, pairs };
   const b64 = toBase64(payload);
-  // Preserve class code in link if present
   const base = `${location.origin}${location.pathname}`;
   const query = CLASS_CODE ? `?class=${encodeURIComponent(CLASS_CODE)}` : location.search;
   const url = `${base}${query}#set=${b64}`;
@@ -254,8 +294,7 @@ $('btnOpen').onclick = ()=>{ if(shareLink.value) window.open(shareLink.value, '_
 
 /* ---------- Logger ---------- */
 async function logEvent(event, extra={}){
-  if(!GAS_URL || GAS_URL.startsWith('PASTE_')) return; // safety: no-op if not configured
-  // Assemble payload
+  if(!GAS_URL || GAS_URL.startsWith('PASTE_')) return; // no-op if not configured
   const pair = (PAIRS[IDX] || {front:'', back:''});
   const body = {
     classCode: CLASS_CODE,
@@ -273,11 +312,9 @@ async function logEvent(event, extra={}){
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-      mode: 'no-cors' // Apps Script returns opaque to the browser; that’s fine
+      mode: 'no-cors'
     });
-  }catch(e){
-    // Silent fail is fine for class use
-  }
+  }catch(e){ /* ignore in class use */ }
 }
 
 /* ---------- Name gate ---------- */
@@ -303,11 +340,10 @@ function loadFromPayload(payload){
   PAIRS = (payload.pairs || []).map(p=>({front:String(p.front||''), back:String(p.back||'')})).filter(p=>p.front && p.back);
   IDX = 0; SHOW_FRONT = true;
   renderCard();
-  // If playing a shared set and no username yet, ask now
   if(!USER_NAME){
     askForName(()=>{ /* started via modal */ });
   } else {
-    logEvent('start'); // starting or reloading set
+    logEvent('start');
   }
 }
 function renderCard(){
@@ -385,20 +421,19 @@ $('helpBtn').onclick = ()=>{
   alert(
 `Vocab input:
 - One pair per line
-- Separator: tab, ;, : or ,
-- Example:
-   groß; big
-   die Stadt, the city
-   freundlich : friendly
-   ich spiele\tI play
+- Separators supported: tab, ;, :, ,, /, |, =, " - ", en/em dash with spaces, or 2+ spaces
+
+Flow:
+1) Paste pairs + title
+2) Generate shareable link
+3) Share the link; it opens straight in Flashcards
 
 Logging:
-- On first play, users enter a name.
-- Add ?class=Y8A to your link to tag class in the log.
-- Events logged: start, next, reveal, swap, shuffle, restart.
+- Users enter a name (stored locally); events sent to your Google Sheet (if GAS_URL set).
+- Add ?class=Y8A to your link to tag class.
 
 Privacy:
-- Names and actions are stored in your Google Sheet.`
+- Use first name + initial only.`
   );
 };
 
@@ -408,7 +443,7 @@ tabPlay.addEventListener('click', ()=>{
     askForName(()=>{ /* when confirmed, user can continue */ });
   }
 });
+}); // DOMContentLoaded
 </script>
 </body>
 </html>
-
